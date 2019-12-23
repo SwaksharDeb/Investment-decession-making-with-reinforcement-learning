@@ -144,7 +144,7 @@ data_samples = len(data)-1
 
 scores = []
 
-def dqn(n_episodes=2000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_decay=0.995):
+def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_decay=0.995):
     """Deep Q-Learning.
     
     Params
@@ -171,7 +171,9 @@ def dqn(n_episodes=2000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_de
                 print("AI Trader bought: ", stocks_price_format(data[t]))
 
             if action == 2 and len(inventory_gp) > 0: #Selling gp
-                buy_price = inventory_gp.pop(0)
+                #buy_price = inventory_gp.pop(0)
+                buy_price = min(inventory_gp)
+                inventory_gp.remove(buy_price)
                 total_profit += (data[t] - buy_price)
                 if data[t] - buy_price>0:
                     reward = 1
