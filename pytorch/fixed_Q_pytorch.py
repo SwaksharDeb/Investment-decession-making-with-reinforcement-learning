@@ -175,12 +175,13 @@ def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_de
                 buy_price = min(inventory_gp)
                 inventory_gp.remove(buy_price)
                 total_profit += (data[t] - buy_price)
-                if data[t] - buy_price>0:
+                """if data[t] - buy_price>0:
                     reward = 1
                 elif data[t] - buy_price==0:
                     reward = 0
                 else:
-                    reward = -1
+                    reward = -1"""
+                reward = data[t] - buy_price
                 print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price))
                 
             if t == data_samples - 1:
@@ -199,8 +200,8 @@ def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_de
     return total_profit
 
 scores = dqn()
-torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local.pth')
-torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_target.pth')
+torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local_.pth')
+torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_target_.pth')
 
 # plot the scores
 fig = plt.figure()
@@ -210,16 +211,39 @@ plt.ylabel('Score')
 plt.xlabel('Episode #')
 plt.show()
 
+"""Test the agent over training set"""
 # load the weights from file
 agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local.pth'))
 
-for i in range(3):
-    state = env.reset()
-    for j in range(200):
-        action = agent.act(state)
-        env.render()
-        state, reward, done, _ = env.step(action)
-        if done:
-            break 
-            
-env.close()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+#load the dataset
+dataset_test = pd.read_csv('GRAE Historical Data 2018 practice.csv')
+data = list(dataset_test['Price'])
+
+#setting up the parameter
+data_samples = len(data)-1
+inventory_gp = []
+total_profit = 0
+
+#testing loop
+state = state_creator(data, 0, window_size + 1)
+
+for t in range(data_samples):
+    next_state = state_creator(data, t+1, window_size + 1)
+    state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+    action = np.argmax(agent.qnetwork_local(state).cpu().data.numpy())
+    if action == 1:
+        inventory_gp.append(data[t])
+        print("AI Trader bought: ", stocks_price_format(data[t]))
+        
+    if action == 2 and len(inventory_gp)>0:
+        buy_price = min(inventory_gp)
+        inventory_gp.remove(buy_price)
+        total_profit += (data[t] - buy_price)
+        print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price))
+    state = next_state
+
+print("########################")
+print("TOTAL PROFIT: {}".format(total_profit))
+print("########################")
