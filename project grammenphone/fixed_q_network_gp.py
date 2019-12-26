@@ -19,7 +19,7 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 from tqdm import tqdm_notebook, tqdm
-from collections import deque
+from collections import deque,namedtuple
 import os.path
 
 """# Stage 2: Building the AI Trader network"""
@@ -35,12 +35,13 @@ class AI_Trader():
     self.inventory_gp = []
     self.gamma = 0.95
     self.epsilon = 1
-    self.epsilon_final = 0.01
+    self.epsilon_final = 0.001
     self.epsilon_decay = 0.995
     self.LR = 0.001
     self.TAU = 1e-3       # for soft update of target parameters
-    #self.t_step = 0
-    #self.update_every = 4  # how often to update the network
+    self.batch_size = 64
+    self.buffer_size =1500
+    self.memory = ReplayBuffer(action_space, self.buffer_size, self.batch_size)
     
     self.local_network = self.model_builder()
     self.target_network = self.model_builder()
@@ -69,20 +70,16 @@ class AI_Trader():
     return np.argmax(actions[0])
   
   
-  def batch_train(self, batch_size):
-    
-    batch = []
-     
-    batch = random.sample(self.memory, 32)  
-    for state, action, reward, next_state, done in batch:
-        reward = reward
-        if not done:
-            reward = reward + self.gamma * np.amax(self.target_network.predict(next_state)[0])
-            
-        target = self.local_network.predict(state)
-        target[0][action] = reward
-          
-        self.local_network.fit(state, target, epochs=1, verbose=0)  
+  def batch_train(self):    
+    states, actions, rewards, next_states, dones = self.memory.sample()
+    Q_targets_next = self.target_network.predict(next_states).max(1)
+    Q_targets_next = np.reshape(Q_targets_next, (-1,1))
+    Q_targets = rewards + self.gamma*Q_targets_next*(1-dones)
+    Q_expected = self.local_network.predict(states)
+    for i in range(self.batch_size):
+        Q_expected[i][actions[i]] = Q_targets[i][0]
+    Q_targets = Q_expected
+    self.local_network.fit(states, Q_targets, epochs=1, verbose=0)  
         
     self.soft_update()
 
@@ -90,6 +87,32 @@ class AI_Trader():
   def soft_update(self):
     for target_params, local_params in zip(self.target_network.trainable_variables, self.local_network.trainable_variables):
       target_params.assign(target_params * (1 - self.TAU) + local_params * self.TAU)
+      
+      
+class ReplayBuffer():
+    def __init__(self, action_space, buffer_size, batch_size):
+        self.action_space = action_space
+        self.buffer_size = buffer_size
+        self.batch_size = batch_size
+        self.memory = deque(maxlen=self.buffer_size)
+        self.experience = namedtuple("experience", field_names=["state","action","reward","next_state","done"])
+    
+    def add(self,state,action,reward,next_state,done):
+        e = self.experience(state,action,reward,next_state,done)
+        self.memory.append(e)
+        
+    def sample(self):
+        experiences = random.sample(self.memory, self.batch_size)
+        states = np.vstack([e.state for e in experiences if e is not None])
+        actions = np.vstack([e.action for e in experiences if e is not None])
+        rewards = np.vstack([e.reward for e in experiences if e is not None])
+        next_state = np.vstack([e.next_state for e in experiences if e is not None])
+        dones = np.vstack([e.done for e in experiences if e is not None])
+        return (states, actions, rewards, next_state, dones)
+    
+    def __len__(self):
+        return len(self.memory)
+
 
 """# Stage 3: Dataset preprocessing
 
@@ -234,7 +257,6 @@ sentiment_score = 1
 sharpe_ratio_list = []
 portfolio_list = []
 
-batch_size = 32
 data_samples = len(data) - 1
 
 """##Defining the Trader model"""
@@ -264,7 +286,12 @@ for episode in range(1, episodes + 1):
     if action == 2 and len(trader.inventory_gp) > 0: #Selling gp
       buy_price = trader.inventory_gp.pop(0)
       total_profit += (data[t] - buy_price)
-      #reward = max((data[t] - buy_price),-1)
+      if (data[t] - buy_price)>0:
+          reward = 1
+      elif(data[t] - buy_price)==0:
+          reward = 0
+      else:
+          reward = -1
       print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price))
 
     if len(portfolio_list) and portfolio_list[0]:
@@ -277,14 +304,10 @@ for episode in range(1, episodes + 1):
         
     if t == data_samples - 1:
       done = True
-      if len(profit_list)>0:
-          reward = statistics.mean(profit_list)/statistics.stdev(profit_list)
-      else:
-          reward = 0
     else:
       done = False
       
-    trader.memory.append((state, action, reward, next_state, done))
+    trader.memory.add(state, action, reward, next_state, done)
     
     state = next_state
     
@@ -295,14 +318,10 @@ for episode in range(1, episodes + 1):
       sharpe_ratio_list.append(sharpe_ratio)
       print("SHARPE RATIO: {}".format(sharpe_ratio))
       print("########################")
-
-    
-    f = open("file2.txt", "w")
-    f.write(str(trader.epsilon))
-    f.close()
-    
-    if len(trader.memory) > batch_size:
-      trader.batch_train(batch_size)
+      
+      
+    if len(trader.memory) > trader.batch_size:
+      trader.batch_train()
     
     #saving the model parameter
     trader_local = trader.local_network.to_json()
