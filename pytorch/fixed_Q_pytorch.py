@@ -169,9 +169,7 @@ def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1, eps_end=0.001, eps_deca
             reward = 0
             if action == 1: #Buying gp
                 if no_buy <=0:
-                    no_buy = 1
-                if no_buy > len(inventory_gp):
-                    no_buy = len(inventory_gp)                    
+                    no_buy = 1                    
                 inventory_gp.append(no_buy*data[t])
                 print("AI Trader bought: ", stocks_price_format(no_buy*data[t]))
 
@@ -216,7 +214,6 @@ plt.plot(np.arange(len(scores)), scores)
 plt.ylabel('Score')
 plt.xlabel('Episode #')
 plt.show()
-
 """Test the agent over training set"""
 # load the weights from file
 agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local.pth'))
@@ -229,7 +226,6 @@ dataset_test = pd.read_csv('GRAE Historical Data 2018 -2019practice.csv')
 data = list(dataset_test['Price'])
 
 #setting up the parameter
-money = 10000
 data_samples = len(data)-1
 inventory_gp = []
 return_list = []
@@ -242,18 +238,23 @@ for t in range(data_samples):
     next_state = state_creator(data, t+1, window_size + 1)
     state = torch.from_numpy(state).float().unsqueeze(0).to(device)
     action = np.argmax(agent.qnetwork_local(state).cpu().data.numpy())
+    action_values = agent.qnetwork_local(state)
+    no_buy = np.max(action_values.cpu().data.numpy())
     if action == 1:
-        if money>data[t]:
-            inventory_gp.append(data[t])
-            money = money - data[t]
-            print("AI Trader bought: ", stocks_price_format(data[t]), "and total money is: ", stocks_price_format(money))
+        if no_buy <= 0:
+            no_buy = 1
+        inventory_gp.append(no_buy*data[t])
+        print("AI Trader bought: ", stocks_price_format(no_buy*data[t]))
         
     if action == 2 and len(inventory_gp)>0:
-        buy_price = min(inventory_gp)
-        inventory_gp.remove(buy_price)
-        total_profit += (data[t] - buy_price)
-        money = money + (data[t] - buy_price)
-        print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price),"and total money is: ", stocks_price_format(money))
+        buy_prices = []
+        no_sell = len(inventory_gp)
+        for i in range(len(inventory_gp)):
+            buy_prices.append(inventory_gp.pop(0))
+        buy_price = sum(buy_prices)
+        total_profit += (no_sell*data[t] - buy_price)
+        print("AI Trader sold: ", stocks_price_format(no_sell*data[t]), " Profit: " + stocks_price_format(no_sell*data[t] - buy_price))
+    
     state = next_state
     
 print("########################")
