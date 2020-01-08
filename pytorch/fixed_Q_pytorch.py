@@ -11,6 +11,7 @@ from collections import deque
 import matplotlib.pyplot as plt
 from dqn_agent import Agent
 import pandas as pd
+import statistics
 
 window_size = 10
 trend_regression = 1
@@ -39,7 +40,7 @@ classifier = tf.keras.models.model_from_json(model_json)
 classifier.load_weights("GP classification with factor.json.h5")
 
 #loading the dataset
-dataset_2 = pd.read_csv('GRAE Historical Data 2018 practice.csv')
+dataset_2 = pd.read_csv('GRAE Historical Data 2018 -2019practice.csv')
 dataset_1 = pd.read_csv('GRAE Historical Data 2009-2017.csv')
 sentiment = dataset_2.iloc[:, 16:17].values
 X_classifier = dataset_2.iloc[:, [7,11,12,13,14]].values
@@ -138,13 +139,13 @@ def state_creator(data, timestep, window_size):
   state = np.reshape(state, (-1))
   return state
 
-dataset_2 = pd.read_csv('GRAE Historical Data 2018 practice.csv')
+dataset_2 = pd.read_csv('GRAE Historical Data 2018 -2019practice.csv')
 data = list(dataset_2['Price'])
 data_samples = len(data)-1
 
 scores = []
 
-def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_decay=0.995):
+def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1, eps_end=0.001, eps_decay=0.995):
     """Deep Q-Learning.
     
     Params
@@ -163,25 +164,32 @@ def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_de
         total_profit = 0        
         inventory_gp = []
         for t in range(max_t):
-            action = agent.act(state, eps)
+            action, no_buy = agent.act(state, eps)
             next_state = state_creator(data, t+1, window_size + 1)
             reward = 0
             if action == 1: #Buying gp
-                inventory_gp.append(data[t])
-                print("AI Trader bought: ", stocks_price_format(data[t]))
+                if no_buy <=0:
+                    no_buy = 1
+                if no_buy > len(inventory_gp):
+                    no_buy = len(inventory_gp)                    
+                inventory_gp.append(no_buy*data[t])
+                print("AI Trader bought: ", stocks_price_format(no_buy*data[t]))
 
             if action == 2 and len(inventory_gp) > 0: #Selling gp
-                #buy_price = inventory_gp.pop(0)
-                buy_price = min(inventory_gp)
-                inventory_gp.remove(buy_price)
-                total_profit += (data[t] - buy_price)
-                if data[t] - buy_price>0:
+                buy_prices = []
+                no_sell = len(inventory_gp)
+                for i in range(len(inventory_gp)):
+                    buy_prices.append(inventory_gp.pop(0))
+                buy_price = sum(buy_prices)
+                total_profit += (no_sell*data[t] - buy_price)
+                if (no_sell*data[t] - buy_price) > 0:
                     reward = 1
-                elif data[t] - buy_price==0:
+                elif (no_sell*data[t] - buy_price) == 0:
                     reward = 0
                 else:
                     reward = -1
-                print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price))
+                #reward = data[t] - buy_price
+                print("AI Trader sold: ", stocks_price_format(no_sell*data[t]), " Profit: " + stocks_price_format(no_sell*data[t] - buy_price))
                 
             if t == data_samples - 1:
                 done = True
@@ -201,7 +209,6 @@ def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_de
 scores = dqn()
 torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local.pth')
 torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_target.pth')
-
 # plot the scores
 fig = plt.figure()
 ax = fig.add_subplot(111)
@@ -210,16 +217,45 @@ plt.ylabel('Score')
 plt.xlabel('Episode #')
 plt.show()
 
+"""Test the agent over training set"""
 # load the weights from file
 agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local.pth'))
+agent.qnetwork_target.load_state_dict(torch.load('checkpoint_qnetwork_target.pth'))
 
-for i in range(3):
-    state = env.reset()
-    for j in range(200):
-        action = agent.act(state)
-        env.render()
-        state, reward, done, _ = env.step(action)
-        if done:
-            break 
-            
-env.close()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+#load the dataset
+dataset_test = pd.read_csv('GRAE Historical Data 2018 -2019practice.csv')
+data = list(dataset_test['Price'])
+
+#setting up the parameter
+money = 10000
+data_samples = len(data)-1
+inventory_gp = []
+return_list = []
+total_profit = 0
+
+#testing loop
+state = state_creator(data, 0, window_size + 1)
+
+for t in range(data_samples):
+    next_state = state_creator(data, t+1, window_size + 1)
+    state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+    action = np.argmax(agent.qnetwork_local(state).cpu().data.numpy())
+    if action == 1:
+        if money>data[t]:
+            inventory_gp.append(data[t])
+            money = money - data[t]
+            print("AI Trader bought: ", stocks_price_format(data[t]), "and total money is: ", stocks_price_format(money))
+        
+    if action == 2 and len(inventory_gp)>0:
+        buy_price = min(inventory_gp)
+        inventory_gp.remove(buy_price)
+        total_profit += (data[t] - buy_price)
+        money = money + (data[t] - buy_price)
+        print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price),"and total money is: ", stocks_price_format(money))
+    state = next_state
+    
+print("########################")
+print("TOTAL PROFIT: {}".format(total_profit))
+print("########################")
