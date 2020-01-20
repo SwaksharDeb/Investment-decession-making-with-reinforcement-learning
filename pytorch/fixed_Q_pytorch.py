@@ -1,26 +1,33 @@
 from IPython.core.debugger import set_trace
 import os.path
 from os import path
-import gym
 import random
 import torch
 import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt
 from dqn_agent import Agent
 import pandas as pd
+import statistics
+import math
+from scipy.stats import pearsonr
+import maximize_return
 
 window_size = 10
-trend_regression = 1
-trend_classification = 1
-sentiment_score = 1
+portfolio_size = 2
+investment_size = 1
+input_size = 2*window_size+portfolio_size+investment_size
 
-agent = Agent(state_size = window_size+trend_regression+trend_classification+sentiment_score, action_size=3, seed=0)
+agent = Agent(state_size = input_size, action_size=3, seed=0)
 
 def sigmoid(x):
   return (1 / (1 + np.exp(-x)))
+
+def softmax(x):
+  e_x = np.exp(x - np.max(x))
+  return e_x / e_x.sum()
 
 def stocks_price_format(n):
   if n < 0:
@@ -28,123 +35,46 @@ def stocks_price_format(n):
   else:
     return "$ {0:2f}".format(abs(n))
 
-"""##Loading ANN for trend analysis(classification)"""
+sc = StandardScaler()
+fit = sc.fit_transform(np.zeros([input_size,1]))
 
-#Load the pretrained model
-with open('GP classification with factor.json', 'r') as f:
-    model_json = f.read()
-
-classifier = tf.keras.models.model_from_json(model_json)
-# load weights into new model
-classifier.load_weights("GP classification with factor.json.h5")
-
-#loading the dataset
-dataset_2 = pd.read_csv('GRAE Historical Data 2018 practice.csv')
-dataset_1 = pd.read_csv('GRAE Historical Data 2009-2017.csv')
-sentiment = dataset_2.iloc[:, 16:17].values
-X_classifier = dataset_2.iloc[:, [7,11,12,13,14]].values
-y_classifier = dataset_2.iloc[:, 15:16].values
-
-#feature scaling
-sc_1 = MinMaxScaler()
-X_classifier = sc_1.fit_transform(X_classifier)
-
-
-"""Loading LSTM for trend analaysis(regression)"""
-
-#Load the pretrained model
-with open('gp prediction with factor.json', 'r') as f:
-    modelgp_json = f.read()
-
-regressor = tf.keras.models.model_from_json(modelgp_json)
-
-# load weights into new model
-regressor.load_weights("gp prediction with factor.json.h5")
-
-#preprocessing
-
-dataset_test_1 = dataset_1.iloc[:,[1,7,11,12,13,14]]
-dataset_test_1 = dataset_test_1.iloc[-60:,:] 
-dataset_test_2 = dataset_2.iloc[:,[1,7,11,12,13,14]]
-dataset_test = pd.concat([dataset_test_1, dataset_test_2], axis = 0, ignore_index=True, sort=False)
-test_set = dataset_test.iloc[:,1:].values
-test_set_y = dataset_test.iloc[:, 0:1].values
-
-inputs = test_set[:,:]
-sc_2 = MinMaxScaler(feature_range = (0, 1))
-inputs = sc_1.transform(inputs)
-test_set_scaled_y = sc_2.fit_transform(test_set_y)
-
-X_regressor = []
-for i in range(60, len(test_set)):
-    X_regressor.append(inputs[i-60:i, :])
-
-X_regressor[0] = np.reshape(X_regressor[0], (1,-1))
-array = np.reshape(X_regressor[0],(1,60,-1))
- 
-for i in range(1,len(X_regressor)):
-    X_regressor[i] = np.reshape(X_regressor[i],(1,-1))
-    X_regressor[i] = np.reshape(X_regressor[i],(1,60,-1))
-    array = np.vstack((array,X_regressor[i]))
-
-X_regressor = array
-
-y_regressor = []
-for i in range(60,len(test_set_scaled_y)):
-    y_regressor.append(test_set_scaled_y[i,0])
-
-y_regressor = np.array(y_regressor)
-y_regressor = np.reshape(y_regressor, (-1,1))
-
-
-def state_creator(data, timestep, window_size):
+def state_creator(data_gp, data_sqph, timestep, window_size, inventory_gp, inventory_sqph, investment):
   
   starting_id = timestep - window_size + 1
   
-  y_pred = classifier.predict(np.reshape(X_classifier[timestep],(1,-1)))
+  gp_assest = len(inventory_gp) * data_gp[timestep]  #portfolio value for gp at current timestep
+  sqph_assest = len(inventory_sqph) * data_sqph[timestep]  #portfolio value for sqph for sqph at current timestep
   
-  if y_pred>0.5:
-    y_pred = 1
-  else:
-    y_pred = 0
-
-  #predicting the price
-  predicted_next_price = sc_2.inverse_transform(regressor.predict(np.reshape(X_regressor[timestep],(1,X_regressor[timestep].shape[0],X_regressor[timestep].shape[1]))))[0,0]
-  if timestep > 0:
-    predicted_present_price = sc_2.inverse_transform(regressor.predict(np.reshape(X_regressor[timestep-1],(1,X_regressor[timestep-1].shape[0],X_regressor[timestep-1].shape[1]))))[0,0]
-  else:
-      predicted_present_price = predicted_next_price
-      
-  diffrence = predicted_next_price - predicted_present_price
-  if diffrence>0:
-      diffrence = 1
-  else:
-      diffrence = 0
-      
   if starting_id >= 0:
-    windowed_data = data[starting_id:timestep+1]
+    windowed_data_gp = data_gp[starting_id:timestep+1]
+    windowed_data_sqph = data_sqph[starting_id:timestep+1]
   else:
-    windowed_data = - starting_id * [data[0]] + list(data[0:timestep+1])
-
+    windowed_data_gp = - starting_id * [data_gp[0]] + list(data_gp[0:timestep+1])
+    windowed_data_sqph = - starting_id * [data_sqph[0]] + list(data_sqph[0:timestep+1])
   state = []
   for i in range(window_size - 1):
-    state.append(sigmoid(windowed_data[i+1] - windowed_data[i]))
-    
-  score = sentiment[timestep,0]
-  state.append(y_pred)
-  state.append(diffrence)
-  state.append(score)
-  state = np.array([state])
-  state = np.reshape(state, (-1))
+    state.append(windowed_data_gp[i+1] - windowed_data_gp[i])  # getting consequent price diffrences for gp 
+    state.append(windowed_data_sqph[i+1] - windowed_data_sqph[i])  #getting consequent price diffrences for sqph
+  state.append(gp_assest)
+  state.append(sqph_assest)
+  state.append(investment)
+  state = np.array([state])   # normalized input(state)
+  state = np.reshape(state, (-1,1))  
+  state = sc.transform(state)
+  state = np.reshape(state, (-1))  #converting state into vector(1D array)
   return state
 
-dataset_2 = pd.read_csv('GRAE Historical Data 2018 practice.csv')
-data = list(dataset_2['Price'])
-data_samples = len(data)-1
+dataset_gp = pd.read_csv('GRAE Historical Data 2010-2018.csv')
+dataset_sqph = pd.read_csv('SQPH Historical Data 2010-2018.csv')
+data_gp = list(dataset_gp['Price'])
+data_sqph = list(dataset_sqph['Price'])
+#returns_gp = list(dataset_gp['return'])
+#returns_sqph = list(dataset_sqph['return'])
+data_samples = len(data_gp)-1
 
 scores = []
 
-def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_decay=0.995):
+def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_decay=0.995):
     """Deep Q-Learning.
     
     Params
@@ -155,53 +85,200 @@ def dqn(n_episodes=5000, max_t=len(data)-1, eps_start=1.0, eps_end=0.001, eps_de
         eps_end (float): minimum value of epsilon
         eps_decay (float): multiplicative factor (per episode) for decreasing epsilon
     """
-    scores_window = deque(maxlen=500)  # last 1500 scores
+    scores_window = deque(maxlen=100)  # last 100 scores
+    returns_gp = deque(maxlen=500)    #last 100 return of gp
+    returns_sqph = deque(maxlen=500)  #last 100 return of sqph
     eps = eps_start                    # initialize epsilon
     for episode in range(1, n_episodes+1):
         print("Episode: {}/{}".format(episode, n_episodes))
-        state = state_creator(data, 0, window_size + 1)
-        total_profit = 0        
+        investment = 100000
         inventory_gp = []
-        for t in range(max_t):
-            action = agent.act(state, eps)
-            next_state = state_creator(data, t+1, window_size + 1)
+        inventory_sqph = []
+        rewards = []
+        state = state_creator(data_gp, data_sqph, 0, window_size + 1, inventory_gp, inventory_sqph, investment)
+        total_profit = 0
+        stock_return_ = 0
+        return_gp_ = 0
+        return_sqph_ = 0
+        portfolio_value_ = 0
+        portfolio_value = 0
+        len_gp_assest_ = 0
+        len_sqph_assest_ = 0
+        assest_gp_ = 0
+        assest_sqph_ = 0
+        for t in range(0,max_t):
+            action = agent.act(state, eps)  #return action(0=hold, 1=buy, 2=sell)          
             reward = 0
-            if action == 1: #Buying gp
-                inventory_gp.append(data[t])
-                print("AI Trader bought: ", stocks_price_format(data[t]))
-
-            if action == 2 and len(inventory_gp) > 0: #Selling gp
-                #buy_price = inventory_gp.pop(0)
-                buy_price = min(inventory_gp)
-                inventory_gp.remove(buy_price)
-                total_profit += (data[t] - buy_price)
-                if data[t] - buy_price>0:
-                    reward = 1
-                elif data[t] - buy_price==0:
-                    reward = 0
-                else:
-                    reward = -1
-                print("AI Trader sold: ", stocks_price_format(data[t]), " Profit: " + stocks_price_format(data[t] - buy_price))
+            stock_return = 0
+            if len(returns_gp)<500 and len(returns_sqph)<500:
                 
+                w_gp, w_sqph = np.random.dirichlet(np.ones(2),size=1).squeeze()
+                
+            #if action == 0 and len(inventory_gp)==0 and len(inventory_sqph)==0:
+                #print("AI Trader is holding.........", "Reward is: ",stocks_price_format(reward))
+            
+            if action == 1: #Buying
+                if investment >= data_gp[t] and investment >= data_sqph[t]:
+                    if len(returns_gp)==500 and len(returns_sqph)==500:
+                        cov = np.cov(np.array(returns_gp),np.array(returns_sqph))
+                        w = maximize_return.markwitz_portpolio([statistics.mean(returns_gp),statistics.mean(returns_sqph)],cov)
+                        w_gp = w[0]
+                        w_sqph = w[1]
+                            
+                    investment_gp = (investment*w_gp)
+                    if investment_gp >= data_gp[t]:
+                        no_stock_gp = int(investment_gp/data_gp[t]) #no of stock to buy
+                    else:
+                        no_stock_gp = 0
+                        
+                    investment_sqph = (investment*w_sqph)
+                    if investment_sqph >= data_sqph[t]:
+                        no_stock_sqph = int(investment_sqph/data_sqph[t])  #no of stock to buy
+                    else:
+                        no_stock_sqph = 0
+                    
+                    for i in range(no_stock_gp):
+                        investment = investment - data_gp[t]  #decrease the investment after buying each stock
+                        inventory_gp.append(data_gp[t])
+                    for i in range(no_stock_sqph):
+                        investment = investment - data_sqph[t]  #decrease the investment after buying each stock
+                        inventory_sqph.append(data_sqph[t])
+
+                    if len_sqph_assest_>0:
+                        return_sqph = ((len(inventory_sqph)*data_sqph[t])-(len_sqph_assest_*data_sqph[t-1]))/(len_sqph_assest_*data_sqph[t-1]) #return of sqph
+                        #if return_sqph>=1:
+                            #set_trace()
+                        returns_sqph.append(return_sqph)
+                    else:
+                        return_sqph = 0
+                        #returns_sqph.append(return_sqph)
+                        
+                    if len_gp_assest_>0:
+                        return_gp = ((len(inventory_gp)*data_gp[t])-(len_gp_assest_*data_gp[t-1]))/(len_gp_assest_*data_gp[t-1])   #return of gp
+                        #if return_gp>=1:
+                            #set_trace()
+                        returns_gp.append(return_gp)                
+                    else:
+                        return_gp = 0
+                        #returns_sqph.append(return_gp)
+                        
+                    stock_return = (w_gp*return_gp) + (w_sqph*return_sqph)   #return of gp and sqph together
+                    portfolio_value = len(inventory_gp)*data_gp[t] + len(inventory_sqph)*data_sqph[t]
+                    reward = stock_return #reward is (present stock return) 
+                    rewards.append(reward)
+                    print("AI Trader bought gp: ", stocks_price_format(investment_gp),"AI Trader bought sqph: ", stocks_price_format(investment_sqph),"Reward is: ",  stocks_price_format(reward))
+                 
+            if action == 2 and (int(len(inventory_gp)*0.8)>0 or int(len(inventory_sqph)*0.8)>0): #Selling
+                buy_prices_gp = []
+                buy_prices_sqph = []
+                no_sell_gp = int(len(inventory_gp)*0.8)
+                no_sell_sqph = int(len(inventory_sqph)*0.8)
+                
+                for i in range(no_sell_gp):
+                    buy_prices_gp.append(inventory_gp[i])
+                buy_price_gp = sum(buy_prices_gp)  #buying price of gp stocks
+                
+                for i in range(no_sell_sqph):
+                    buy_prices_sqph.append(inventory_sqph[i]) 
+                buy_price_sqph = sum(buy_prices_sqph)  #buying price of sqph stocks
+                
+                buy_price = buy_price_gp + buy_price_sqph
+                
+                assest_gp_ = len(inventory_gp)*data_gp[t]
+                assest_sqph_ = len(inventory_sqph)*data_sqph[t]
+                total_profit += (no_sell_gp*data_gp[t] + no_sell_sqph*data_sqph[t]) - buy_price
+                profit = (no_sell_gp*data_gp[t] + no_sell_sqph*data_sqph[t]) - buy_price
+                #if profit == 0:
+                    #print("nothing")
+                investment = investment + (no_sell_gp*data_gp[t] + no_sell_sqph*data_sqph[t])  #total investment or cash in hand
+                revenue = no_sell_gp*data_gp[t] + no_sell_sqph*data_sqph[t]
+                if len(inventory_sqph) > 0:
+                    return_sqph = ((len(inventory_sqph)*data_sqph[t])-(len_sqph_assest_*data_sqph[t-1]))/(len_sqph_assest_*data_sqph[t-1])  #return of sqph
+                    #if return_sqph>=1:
+                            #set_trace()
+                    returns_sqph.append(return_sqph)
+                    
+                if len(inventory_gp) > 0:
+                    return_gp = ((len(inventory_gp)*data_gp[t])-(len_gp_assest_*data_gp[t-1]))/(len_gp_assest_*data_gp[t-1])   #return of gp
+                    #if return_gp>=1:
+                            #set_trace()
+                    returns_gp.append(return_gp)                
+                    
+                for i in range(no_sell_gp):
+                    inventory_gp.pop(0)   # empty the gp inventory after selling all of them
+                for i in range(no_sell_sqph):
+                    inventory_sqph.pop(0)  #empy the sqph inventory after selling all of them
+
+                stock_return = (w_gp*return_gp) + (w_sqph*return_sqph)  #return of gp and sqph together
+                #portfolio_value = len(inventory_gp)*data_gp[t] + len(inventory_sqph)*data_sqph[t] + revenue
+                reward = stock_return    #reward is (present stock return)           
+                rewards.append(reward)
+                                
+                print("AI Trader sold gp: ", stocks_price_format(buy_price_gp),"AI Trader sold sqph: ", stocks_price_format(buy_price_sqph), " Profit: " + stocks_price_format(profit),"Reward is: ",  stocks_price_format(reward))
+
+            if action == 0: #hold
+                if len(inventory_sqph) > 0:                    
+                    return_sqph = ((len(inventory_sqph)*data_sqph[t])-(len_sqph_assest_*data_sqph[t-1]))/(len_sqph_assest_*data_sqph[t-1])  #return of sqph
+                    #if return_sqph>=1:
+                            #set_trace()
+                    returns_sqph.append(return_sqph)
+                else:
+                    return_sqph = 0
+                    #returns_sqph.append(return_sqph)
+                    
+                
+                if len(inventory_gp) > 0:    
+                    return_gp = ((len(inventory_gp)*data_gp[t])-(len_gp_assest_*data_gp[t-1]))/(len_gp_assest_*data_gp[t-1]) #return of gp
+                    #if return_gp>=1:
+                            #set_trace()
+                    returns_gp.append(return_gp)                
+                else:
+                    return_gp = 0
+                    
+                stock_return = (w_gp*return_gp) + (w_sqph*return_sqph) #return of gp and sqph together
+                portfolio_value = len(inventory_gp)*data_gp[t] + len(inventory_sqph)*data_sqph[t]
+                reward = stock_return  #reward is (present stock return)           
+                rewards.append(reward)
+                print("AI Trader is holding........", "Reward is: ",stocks_price_format(reward))                
+                                                                        
+            next_state = state_creator(data_gp, data_sqph, t+1, window_size + 1, inventory_gp, inventory_sqph, investment)
+            
+            if investment<=0 and len(inventory_gp)==0 and len(inventory_sqph)==0: #checking for bankcrapcy
+                reward = -10
+                done = True
+                agent.step(state, action, reward, next_state, done)
+                print("########################")
+                print("TOTAL PROFIT: {}".format(total_profit))
+                print("AI Trader is bankcrapted")
+                scores.append(total_profit)
+                print("########################")            
+                break  # if bankcrapted end the seassion
+            
             if t == data_samples - 1:
                 done = True
             else:
                 done = False
+                
             agent.step(state, action, reward, next_state, done)
-            state = next_state
+            state = next_state  #assin next state to present state
+            stock_return_ = stock_return  #assin present's stock return to yesterday's stock return
+            portfolio_value_ = portfolio_value
+            len_gp_assest_ = len(inventory_gp)
+            len_sqph_assest_ = len(inventory_sqph)
             if done:
                 print("########################")
                 print("TOTAL PROFIT: {}".format(total_profit))
                 scores.append(total_profit)
                 print("########################")
             
-        eps = max(eps_end, eps_decay*eps) # decrease epsilon
+        eps = max(eps_end, eps_decay*eps) # decrease epsilon after finishing each seassion
     return total_profit
 
-scores = dqn()
-torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local.pth')
-torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_target.pth')
+#scores = dqn()
+############################################################################################################
 
+"""torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local.pth')
+torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_target.pth')
 # plot the scores
 fig = plt.figure()
 ax = fig.add_subplot(111)
@@ -209,17 +286,165 @@ plt.plot(np.arange(len(scores)), scores)
 plt.ylabel('Score')
 plt.xlabel('Episode #')
 plt.show()
-
+"""
+############################################################################################################
+"""Test the agent over training set"""
 # load the weights from file
-agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local.pth'))
+agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local_good.pth'))
+agent.qnetwork_target.load_state_dict(torch.load('checkpoint_qnetwork_target_good.pth'))
 
-for i in range(3):
-    state = env.reset()
-    for j in range(200):
-        action = agent.act(state)
-        env.render()
-        state, reward, done, _ = env.step(action)
-        if done:
-            break 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+#load the dataset
+dataset_gp_test = pd.read_csv('GRAE Historical Data 2019.csv')
+data_gp_test = list(dataset_gp_test['Price'])
+dataset_sqph_test = pd.read_csv('SQPH Historical Data 2019.csv')
+data_sqph_test = list(dataset_sqph_test['Price'])
+
+#setting up the parameter
+data_samples = len(data_gp_test)-1
+inventory_gp = []
+inventory_sqph = []
+returns_gp = deque(maxlen=100)
+returns_sqph = deque(maxlen=100)
+total_profit = 0
+investment = 100000
+stock_return_ = 0
+return_gp_ = 0
+return_sqph_ = 0
+portfolio_value_ = 0
+portfolio_value = 0
+len_gp_assest_ = 0
+len_sqph_assest_ = 0
+assest_gp_ = 0
+assest_sqph_ = 0
+
+f = open("state.txt","w")
+#testing loop
+state = state_creator(data_gp_test,data_sqph_test,0,window_size + 1,inventory_gp,inventory_sqph,investment)
+
+for t in range(0,data_samples-1):
+    #next_state = state_creator(data_gp_test,data_sqph_test,t+1,window_size + 1,inventory_gp,inventory_sqph,investment)
+    state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+    f.write(str(sc.inverse_transform(state.cpu().data.numpy())))
+    action = np.argmax(agent.qnetwork_local(state).cpu().data.numpy())
+    
+    if len(returns_gp)<100 or len(returns_sqph)<100:
+        w_gp, w_sqph = 0.5, 0.5
+    
+    if action == 1:  #buy
+        if investment >= data_gp[t] and investment >= data_sqph[t]:
+            if len(returns_gp)==100 and len(returns_sqph)==100:
+                cov = np.cov(np.array(returns_gp),np.array(returns_sqph))
+                w = maximize_return.markwitz_portpolio([statistics.mean(returns_gp),statistics.mean(returns_sqph)],cov)
+                w_gp = w[0]
+                w_sqph = w[1]
+                            
+            investment_gp = (investment*w_gp)
+            if investment_gp >= data_gp_test[t]:
+                no_stock_gp = int(investment_gp/data_gp_test[t]) #no of stock to buy
+            else:
+                no_stock_gp = 0
+                        
+            investment_sqph = (investment*w_sqph)
+            if investment_sqph >= data_sqph[t]:
+                no_stock_sqph = int(investment_sqph/data_sqph_test[t])  #no of stock to buy
+            else:
+                no_stock_sqph = 0
+                    
+            for i in range(no_stock_gp):
+                investment = investment - data_gp_test[t]  #decrease the investment after buying each stock
+                inventory_gp.append(data_gp_test[t])
+            for i in range(no_stock_sqph):
+                investment = investment - data_sqph_test[t]  #decrease the investment after buying each stock
+                inventory_sqph.append(data_sqph_test[t])
             
-env.close()
+            if len_sqph_assest_>0:
+                return_sqph = ((len(inventory_sqph)*data_sqph_test[t])-(len_sqph_assest_*data_sqph_test[t-1]))/(len_sqph_assest_*data_sqph_test[t-1]) #return of sqph
+                returns_sqph.append(return_sqph)
+            else:
+                return_sqph = 0
+                        
+            if len_gp_assest_>0:
+                return_gp = ((len(inventory_gp)*data_gp_test[t])-(len_gp_assest_*data_gp_test[t-1]))/(len_gp_assest_*data_gp_test[t-1])   #return of gp
+                returns_gp.append(return_gp)                
+            else:
+                return_gp = 0
+                    
+            f.write("BUY")
+            print("AI Trader bought gp: ", stocks_price_format(investment_gp),"AI Trader bought sqph: ", stocks_price_format(investment_sqph))
+                 
+    if action == 2 and (int(len(inventory_gp)*0.8)>0 or int(len(inventory_sqph)*0.8)>0): #Selling
+        buy_prices_gp = []
+        buy_prices_sqph = []
+        no_sell_gp = int(len(inventory_gp)*0.8)
+        no_sell_sqph = int(len(inventory_sqph)*0.8)
+                
+        for i in range(no_sell_gp):
+            buy_prices_gp.append(inventory_gp[i])
+            buy_price_gp = sum(buy_prices_gp)  #buying price of gp stocks
+                
+        for i in range(no_sell_sqph):
+            buy_prices_sqph.append(inventory_sqph[i]) 
+            buy_price_sqph = sum(buy_prices_sqph)  #buying price of sqph stocks
+                
+        buy_price = buy_price_gp + buy_price_sqph
+                
+        assest_gp_ = len(inventory_gp)*data_gp_test[t]
+        assest_sqph_ = len(inventory_sqph)*data_sqph_test[t]
+        total_profit += (no_sell_gp*data_gp_test[t] + no_sell_sqph*data_sqph_test[t]) - buy_price
+        profit = (no_sell_gp*data_gp_test[t] + no_sell_sqph*data_sqph_test[t]) - buy_price
+        investment = investment + (no_sell_gp*data_gp_test[t] + no_sell_sqph*data_sqph_test[t])  #total investment or cash in hand
+        revenue = no_sell_gp*data_gp_test[t] + no_sell_sqph*data_sqph_test[t]
+        
+        if len(inventory_sqph) > 0:
+            return_sqph = ((len(inventory_sqph)*data_sqph_test[t])-(len_sqph_assest_*data_sqph_test[t-1]))/(len_sqph_assest_*data_sqph_test[t-1])  #return of sqph
+            returns_sqph.append(return_sqph)
+                    
+        if len(inventory_gp) > 0:
+            return_gp = ((len(inventory_gp)*data_gp_test[t])-(len_gp_assest_*data_gp_test[t-1]))/(len_gp_assest_*data_gp_test[t-1])   #return of gp
+            returns_gp.append(return_gp)                
+                    
+        for i in range(no_sell_gp):
+            inventory_gp.pop(0)   # empty the gp inventory after selling all of them
+        for i in range(no_sell_sqph):
+            inventory_sqph.pop(0)  #empy the sqph inventory after selling all of them
+                                
+        f.write("SELL")
+        print("AI Trader sold gp: ", stocks_price_format(buy_price_gp),"AI Trader sold sqph: ", stocks_price_format(buy_price_sqph), " Profit: " + stocks_price_format(profit))
+
+    if action == 0: #hold
+        if len(inventory_sqph) > 0:                    
+            return_sqph = ((len(inventory_sqph)*data_sqph_test[t])-(len_sqph_assest_*data_sqph_test[t-1]))/(len_sqph_assest_*data_sqph_test[t-1])  #return of sqph
+            returns_sqph.append(return_sqph)
+        else:
+            return_sqph = 0
+                                    
+        if len(inventory_gp) > 0:    
+            return_gp = ((len(inventory_gp)*data_gp_test[t])-(len_gp_assest_*data_gp_test[t-1]))/(len_gp_assest_*data_gp_test[t-1]) #return of gp
+            returns_gp.append(return_gp)                
+        else:
+            return_gp = 0
+                    
+        f.write("HOLD")
+        print("AI Trader is holding........")                
+                                                                        
+    next_state = state_creator(data_gp_test,data_sqph_test,t+1,window_size + 1,inventory_gp,inventory_sqph,investment)
+    #print("state is: ", sc.inverse_transform(state.cpu().data.numpy()))
+            
+    if investment<=0 and len(inventory_gp)==0 and len(inventory_sqph)==0: #checking for bankcrapcy
+        print("########################")
+        print("TOTAL PROFIT: {}".format(total_profit))
+        print("AI Trader is bankcrapted")
+        scores.append(total_profit)
+        print("########################")            
+        break  # if bankcrapted end the seassion
+            
+    state = next_state  #assin next state to present state
+    len_gp_assest_ = len(inventory_gp)
+    len_sqph_assest_ = len(inventory_sqph)
+
+print("########################")
+print("TOTAL PROFIT: {}".format(total_profit))
+print("########################")
+f.close()
