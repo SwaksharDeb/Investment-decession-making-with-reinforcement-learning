@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
+BUFFER_SIZE = 10000     # replay buffer size
 BATCH_SIZE = 64         # minibatch size
 GAMMA = 0.95            # discount factor
 TAU = 1e-3              # for soft update of target parameters
@@ -96,7 +96,6 @@ class Agent():
         Q_expected = self.qnetwork_local(states).gather(1, actions)        
         # Compute loss
         loss = F.mse_loss(Q_expected, Q_targets)
-        print("Loss is: ",loss)
         # Minimize the loss
         self.optimizer.zero_grad()
         loss.backward()
