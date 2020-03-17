@@ -138,7 +138,7 @@ def evaluation():
     #f.close()
 
 
-def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_decay=0.995):
+def dqn(n_episodes=5000, max_t=len(data_gp)-20, eps_start=1, eps_end=0.001, eps_decay=0.995):
     """Deep Q-Learning.
     
     Params
@@ -158,7 +158,7 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_d
     for episode in range(1, n_episodes+1):
         print("Episode: {}/{}".format(episode, n_episodes))
         investment = 10000
-        portfolio_value_ = investment
+        #portfolio_value_ = investment
         inventory_gp = []
         state = state_creator(data_gp,10,window_size,inventory_gp,investment,episode,trend_gp)
         total_profit = 0
@@ -166,19 +166,23 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_d
     
         for t in range(10,max_t):
             action = agent.act(state, eps)
-            reward = -10000
-            change_percent_stock = ((data_gp[t]-statistics.mean(data_gp[t-10:t]))/statistics.mean(data_gp[t-10:t]))*100
+            reward = -100
+            #change_percent_stock = ((data_gp[t]-statistics.mean(data_gp[t-10:t]))/statistics.mean(data_gp[t-10:t]))*100
             if action == 1 and int(investment/data_gp[t])>0: #Buying gp
                 no_buy = int(investment/data_gp[t])
                 for i in range(no_buy):
                     investment -= data_gp[t]
                     inventory_gp.append(data_gp[t])
-                portfolio_value = (len(inventory_gp)*data_gp[t]) + investment
+                #portfolio_value = (len(inventory_gp)*data_gp[t]) + investment
                 #reward = (len(inventory_gp)*sell_date[0])-(len(inventory_gp)*data_gp[t])
-                if trend_gp[t]==0:
-                    reward = -1000    
+                #if trend_gp[t]==0:
+                    #reward = -1000    
+                fifteen_days_min = min(data_gp[t+1:t+16])
+                if data_gp[t] < fifteen_days_min:
+                    #reward = -(change_percent_stock)*100
+                    reward = 1                  
                 else:
-                    reward = -(change_percent_stock)*100
+                    reward = -1
                 rewards.append(reward)
                 print("AI Trader bought: ", stocks_price_format(no_buy*data_gp[t])," Reward: " + stocks_price_format(reward))
 
@@ -187,15 +191,23 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_d
                 for i in range(len(inventory_gp)):
                     buy_prices_gp.append(inventory_gp[i])
                 buy_price = sum(buy_prices_gp)  #buying price of gp stocks                
-                if trend_gp[t]==1:
-                    reward = -1000
-                else:
+                #if trend_gp[t]==1:
+                    #reward = -1000
+                #if data_gp[t]<=max(data_gp[t:t+15]):
+                    #reward = -1000
+                #else:
                     #reward = change_percent_stock * 100
-                    reward = (len(inventory_gp)*data_gp[t]) - buy_price
+                    #reward = (len(inventory_gp)*data_gp[t]) - buy_price
+                fifteen_days_max = max(data_gp[t+1:t+16])
+                if data_gp[t] > fifteen_days_max:
+                    #reward = (len(inventory_gp)*data_gp[t]) - buy_price
+                    reward = 1
+                else:
+                    reward = -1
                 total_profit += (len(inventory_gp)*data_gp[t]) - buy_price
                 profit = (len(inventory_gp)*data_gp[t]) - buy_price
                 investment = investment + (len(inventory_gp)*data_gp[t])  #total investment or cash in hand
-                portfolio_value = investment
+                #portfolio_value = investment
                 #reward =(len(inventory_gp)*data_gp[t]) - buy_price
                 
                 rewards.append(reward)
@@ -205,18 +217,29 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_d
                     inventory_gp.pop(0)
                 
             if action == 0:
-                if abs(change_percent_stock)<=0.2:
-                    reward = 500
+                #if abs(change_percent_stock)<=0.2:
+                    #reward = 500
+                #else:
+                    #reward = 0
+                """prev_days_max = max(data_gp[t-10:t])
+                fifteen_days_min = min(data_gp[t+1:t+16])
+                prev_days_min = min(data_gp[t-10:t])
+                fifteen_days_max = max(data_gp[t+1:t+16])
+                if (data_gp[t] > prev_days_max) and (data_gp[t] < fifteen_days_min):
+                    reward = 1
+                elif(data_gp[t] < prev_days_min) and (data_gp[t] > fifteen_days_max):
+                    reward = 1
                 else:
-                    reward = 0
+                    reward = -1"""
+                reward = 0
                 print("AT Trader is holding.................","Reward: ",stocks_price_format(reward))
-                porfolio_value = (len(inventory_gp)*data_gp[t]) + investment
+                #porfolio_value = (len(inventory_gp)*data_gp[t]) + investment
                
             next_state = state_creator(data_gp,t+1,window_size,inventory_gp,investment,episode,trend_gp)
-            portfolio_value_ = portfolio_value
+            #portfolio_value_ = portfolio_value
             
             if investment<=0 and len(inventory_gp)==0: #checking for bankcrapcy
-                reward = -10
+                reward = -1000
                 done = True
                 agent.step(state, action, reward, next_state, done)
                 print("########################")
@@ -226,7 +249,7 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_d
                 print("########################")            
                 break  # if bankcrapted end the seassion
             
-            if t == data_samples - 1:
+            if t == max_t - 1:
                 done = True
             else:
                 done = False
@@ -240,6 +263,10 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-1, eps_start=1, eps_end=0.001, eps_d
             
         evaluation()
         eps = max(eps_end, eps_decay*eps) # decrease epsilon
+        #save the model weights
+        if episode == 100:
+            torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local_WMT_V5_.pth')
+            torch.save(agent.qnetwork_target.state_dict(), 'checkpoint_qnetwork_target_WMT_V5_.pth')            
     return total_profit
 
 scores = dqn()
@@ -261,13 +288,13 @@ plt.show()
 
 agent = Agent(state_size = input_size, action_size=3, seed=0)
 
-agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local_WMT_with_trend.pth'))
-agent.qnetwork_target.load_state_dict(torch.load('checkpoint_qnetwork_target_WMT_with_trend.pth'))
+agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local_WMT_V5_.pth'))
+agent.qnetwork_target.load_state_dict(torch.load('checkpoint_qnetwork_target_WMT_V5_.pth'))
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 #import the test data
-dataset_gp_test = pd.read_csv('WMT Historical Data 2012.csv')
+dataset_gp_test = pd.read_csv('WMT Historical Data 2016.csv')
 data_gp_test = list(dataset_gp_test['Price'])
 trend_gp_test = list(dataset_gp_test['trend'])
 
