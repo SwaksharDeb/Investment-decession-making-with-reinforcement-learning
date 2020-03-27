@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-BUFFER_SIZE = 10000     # replay buffer size
+BUFFER_SIZE = int(1e5)     # replay buffer size
 BATCH_SIZE = 64         # minibatch size
 GAMMA = 0.95            # discount factor
 TAU = 1e-3              # for soft update of target parameters
@@ -56,7 +56,7 @@ class Agent():
                 self.learn(experiences, GAMMA)
 
     def act(self, state, eps=0.):
-        """Returns actions for given state as per current policy.
+        """Returns actions for given state as per current policy and Q value.
         
         Params
         ======
@@ -72,10 +72,13 @@ class Agent():
 
         # Epsilon-greedy action selection
         if random.random() > eps:
-            return np.argmax(action_values.cpu().data.numpy()) 
+            return np.argmax(action_values.cpu().data.numpy()),  np.max(action_values.cpu().data.numpy())
         else:
             #set_trace()
-             return random.choice(np.arange(self.action_size))
+            random_action = random.choice(np.arange(self.action_size))
+            action_values = action_values.cpu().data.numpy()
+            return random_action, action_values[0,0,random_action]
+        
     def learn(self, experiences, gamma):
         """Update value parameters using given batch of experience tuples.
 

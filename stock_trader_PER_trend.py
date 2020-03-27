@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt
-from dqn_agent import Agent
+from DQN_PER import Agent
 import pandas as pd
 import statistics
+import time
 
 window_size = 10
 portfolio_size = 1
@@ -20,11 +21,9 @@ investment_size = 1
 trend_size = 1
 input_size = window_size + portfolio_size +investment_size +trend_size
 
-tb = SummaryWriter() #initialize tensorboard object
+Name = "runs/DQN with PER lr=4.8e-2 tau=1e-2 gamma 0.995 {}".format(int(time.time()))
+tb = SummaryWriter(log_dir=Name) #initialize tensorboard object
 agent = Agent(state_size = input_size, action_size=3, seed=0)
-
-agent.qnetwork_local.load_state_dict(torch.load('checkpoints/checkpoint_qnetwork_local_WMT_V5_.pth'))
-agent.qnetwork_target.load_state_dict(torch.load('checkpoints/checkpoint_qnetwork_target_WMT_V5_.pth'))
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -231,10 +230,12 @@ def dqn(n_episodes=5000, max_t=len(data_gp)-20, eps_start=1, eps_end=0.001, eps_
             
         evaluation()
         eps = max(eps_end, eps_decay*eps) # decrease epsilon
+        """
         #save the model weights
         if episode == 100:
             torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local_WMT_V5_.pth')
-            torch.save(agent.qnetwork_target.state_dict(), 'checkpoint_qnetwork_target_WMT_V5_.pth')            
+            torch.save(agent.qnetwork_target.state_dict(), 'checkpoint_qnetwork_target_WMT_V5_.pth')
+        """            
     return rewards_avg
 
 scores = dqn()
@@ -242,8 +243,8 @@ tb.close() # close the tensorboard object
 
 ################################################################################################
 #save the model weights
-torch.save(agent.qnetwork_local.state_dict(), 'checkpoint_qnetwork_local_WMT_V5_.pth')
-torch.save(agent.qnetwork_target.state_dict(), 'checkpoint_qnetwork_target_WMT_V5_.pth')
+#torch.save(agent.qnetwork_local.state_dict(), 'checkpoints/checkpoint_qnetwork_local_WMT_PER.pth')
+#torch.save(agent.qnetwork_target.state_dict(), 'checkpoints/checkpoint_qnetwork_target_WMT_V5_PER.pth')
 ################################################################################################
 
 # plot the average_reward for each epoach
@@ -263,16 +264,15 @@ plt.xlabel('Episode #')
 plt.show()
 
 """Test the agent over training set"""
-
 agent = Agent(state_size = input_size, action_size=3, seed=0)
 
-agent.qnetwork_local.load_state_dict(torch.load('checkpoint_qnetwork_local_WMT_V5_.pth'))
-agent.qnetwork_target.load_state_dict(torch.load('checkpoint_qnetwork_target_WMT_V5_.pth'))
+agent.qnetwork_local.load_state_dict(torch.load('checkpoints/checkpoint_qnetwork_local_WMT_PER.pth'))
+agent.qnetwork_target.load_state_dict(torch.load('checkpoints/checkpoint_qnetwork_target_WMT_V5_PER.pth'))
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 #import the test data
-dataset_gp_test = pd.read_csv('datasets/WMT Historical Data 2019.csv')
+dataset_gp_test = pd.read_csv('datasets/WMT Historical Data 2016.csv')
 data_gp_test = list(dataset_gp_test['Price'])
 trend_gp_test = list(dataset_gp_test['trend'])
 
