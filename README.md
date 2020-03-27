@@ -19,4 +19,4 @@ stock_trader_with_trend.py = stock trader with DQN and experienced replay
 1. Run any of the stock trader named file according to your chosen algorithm, module will be automatically imported.
 
 # Note
-Do not change the folder structure. you can also observ the average Q value and average reward at each episode in tensorboard and those tensorboard files are stored in runs file.
+Do not change the folder structure. you can also observ the average Q value and average reward at each episode in tensorboard and those tensorboard files are stored in runs folder.
