@@ -38,7 +38,7 @@ class Agent():
         self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
         self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)   #only update the local network parameters
-        self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, lr_decay)
+        #self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, lr_decay)
          
         # prioritized Replay memory
         self.memory = PrioritizedReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed, device,
@@ -112,7 +112,7 @@ class Agent():
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        self.lr_scheduler.step()
+        #self.lr_scheduler.step()
     
         # ------------------- update target network ------------------- #
         self.soft_update(self.qnetwork_local, self.qnetwork_target, TAU)    #updating the target network parameters                    

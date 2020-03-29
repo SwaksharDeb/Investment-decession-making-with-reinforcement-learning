@@ -38,7 +38,7 @@ class Agent():
         self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
         self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)   #only update the local network parameters
-        self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, lr_decay)
+        #self.lr_scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, lr_decay)
          
         # prioritized Replay memory
         self.memory = PrioritizedReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed, device,
@@ -95,8 +95,8 @@ class Agent():
         # Get max predicted Q values (for next states) from target model
         
         Q_locals_next = self.qnetwork_local(next_states)
-        locals_action = Q_locals_next.max(dim=1, keepdim=True)[1] #action suggested by local network
-        Q_targets_next = self.qnetwork_target(next_states).gather(1,locals_action) # Q values of those action w.r.t target network
+        greedy_actions = Q_locals_next.max(dim=1, keepdim=True)[1] # greedy action suggested by local network
+        Q_targets_next = self.qnetwork_target(next_states).gather(1,greedy_actions) # Q values of those action w.r.t target network
         # Compute Q targets for current states
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
         #Get expected Q values from local model
@@ -115,7 +115,7 @@ class Agent():
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        self.lr_scheduler.step()
+        #self.lr_scheduler.step()
     
         # ------------------- update target network ------------------- #
         self.soft_update(self.qnetwork_local, self.qnetwork_target, TAU)    #updating the target network parameters                    
