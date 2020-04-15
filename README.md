@@ -16,12 +16,12 @@ an automated trading bot using reinforcement learning
 **stock_trader_with_trend.py** = stock trader with DQN and experienced replay
 
 # Introduction
-Currently, I am working on **stock_trader_DDQN_PER.py** file. So, the results are shown using deep double Q learning with prioratized experience replay. 
+Currently, I am working on **stock_trader_DDQN_PER.py** (stock trader using deep double Q learning with prioratized experience replay) file. So, the results are shown using deep double Q learning with prioratized experience replay. 
 
-Result in training set:
+Result in training set. Training set is 2018 walmert stock market.
 ![DDQN_PER with market factors training set.png](https://github.com/SwaksharDeb/stock-trader/blob/master/photos/DDQN_PER%20with%20market%20factors%20training%20set.png)
 
-Result in test set:
+Result in test set. Test set is 2019 walmert stock market.
 ![DDQN_PER with market factors training set.png](https://github.com/SwaksharDeb/stock-trader/blob/master/photos/DDQN_PER%20with%20market%20factors%20test%20set.png)
 
 
