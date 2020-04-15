@@ -15,6 +15,12 @@ an automated trading bot using reinforcement learning
 
 **stock_trader_with_trend.py** = stock trader with DQN and experienced replay
 
+# Introduction
+Currently, I am working on **stock_trader_DDQN_PER.py** file. So, the results are shown using deep double Q learning with prioratized experience replay. 
+
+![photos/DDQN_PER with market factors training set.png](photos/DDQN_PER with market factors training set.png)
+
+
 # Usage
 1. Run any of the stock trader named file according to your chosen algorithm, module will be automatically imported.
 
