@@ -18,6 +18,10 @@ an automated trading bot using reinforcement learning
 # Introduction
 Currently, I am working on **stock_trader_DDQN_PER.py** file. So, the results are shown using deep double Q learning with prioratized experience replay. 
 
+Result in training set:
+![DDQN_PER with market factors training set.png](https://github.com/SwaksharDeb/stock-trader/blob/master/photos/DDQN_PER%20with%20market%20factors%20training%20set.png)
+
+Result in test set:
 ![DDQN_PER with market factors training set.png](https://github.com/SwaksharDeb/stock-trader/blob/master/photos/DDQN_PER%20with%20market%20factors%20test%20set.png)
 
 
