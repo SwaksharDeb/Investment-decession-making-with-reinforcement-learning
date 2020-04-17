@@ -15,7 +15,7 @@ an automated trading bot using reinforcement learning
 
 **stock_trader_with_trend.py** = stock trader with DQN and experienced replay
 
-# Introduction
+# Results
 Currently, I am working on **stock_trader_DDQN_PER.py** (stock trader using deep double Q learning with prioratized experience replay) file. So, the results are shown using deep double Q learning with prioratized experience replay. 
 
 Result in training set. Training set is 2018 walmert stock market.
